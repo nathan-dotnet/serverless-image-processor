@@ -1,17 +1,19 @@
-using Azure.Monitor.OpenTelemetry.Exporter;
+using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
-using Microsoft.Azure.Functions.Worker.OpenTelemetry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using OpenTelemetry;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
 
-builder.Services.AddOpenTelemetry()
-    .UseFunctionsWorkerDefaults()
-    .UseAzureMonitorExporter();
-
+builder.Services.AddSingleton(s =>
+    new CosmosClient(
+        Environment.GetEnvironmentVariable("CosmosDbConnectionString"),
+        new CosmosClientOptions
+        {
+            ConnectionMode = ConnectionMode.Gateway
+        }));
+        
 builder.Build().Run();
