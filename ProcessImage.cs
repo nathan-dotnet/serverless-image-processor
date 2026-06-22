@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
@@ -12,15 +13,17 @@ namespace ServerlessImageProcessor.Functions
     {
         private readonly ILogger<ProcessImage> _logger;
         private readonly CosmosClient _cosmosClient;
+        private readonly ObjectDetector _objectDetector;
         private const string DatabaseName = "ImageProcessingDb";
         private const string ContainerName = "ImageMetadata";
         private const int MaxWidth = 800;
         private const string WatermarkText = "(c) ServerlessImageProcessor";
 
-        public ProcessImage(ILogger<ProcessImage> logger, CosmosClient cosmosClient)
+        public ProcessImage(ILogger<ProcessImage> logger, CosmosClient cosmosClient, ObjectDetector objectDetector)
         {
             _logger = logger;
             _cosmosClient = cosmosClient;
+            _objectDetector = objectDetector;
         }
 
         // Triggers when a blob lands in the "uploads" container.
@@ -43,6 +46,10 @@ namespace ServerlessImageProcessor.Functions
             int originalWidth = original.Width;
             int originalHeight = original.Height;
 
+            // Run object detection on the original decoded image, before resizing/watermarking.
+            List<DetectedObject> detectedObjects = _objectDetector.Detect(original);
+            _logger.LogInformation("Detected {Count} object(s) in {Name}", detectedObjects.Count, name);
+
             // Resize, preserving aspect ratio. Skip upscaling if already small.
             float scale = Math.Min(1f, (float)MaxWidth / original.Width);
             int newWidth = (int)(original.Width * scale);
@@ -58,6 +65,7 @@ namespace ServerlessImageProcessor.Functions
             using var surface = SKSurface.Create(new SKImageInfo(newWidth, newHeight));
             var canvas = surface.Canvas;
             canvas.DrawBitmap(resized, 0, 0);
+
             using var font = new SKFont(SKTypeface.Default, Math.Max(14, newWidth / 25));
             using var paint = new SKPaint
             {
@@ -69,19 +77,21 @@ namespace ServerlessImageProcessor.Functions
             float x = newWidth - textBounds.Width - 12;
             float y = newHeight - 12;
             canvas.DrawText(WatermarkText, x, y, SKTextAlign.Left, font, paint);
+
             using var snapshot = surface.Snapshot();
             using var encoded = snapshot.Encode(SKEncodedImageFormat.Jpeg, 85);
             byte[] processedBytes = encoded.ToArray();
 
             await WriteMetadataAsync(name, originalWidth, originalHeight, newWidth, newHeight,
-                imageBytes.Length, processedBytes.Length);
+                imageBytes.Length, processedBytes.Length, detectedObjects);
 
             return processedBytes;
         }
 
         private async Task WriteMetadataAsync(
             string fileName, int originalWidth, int originalHeight,
-            int newWidth, int newHeight, int originalSizeBytes, int processedSizeBytes)
+            int newWidth, int newHeight, int originalSizeBytes, int processedSizeBytes,
+            List<DetectedObject> detectedObjects)
         {
             var container = _cosmosClient.GetContainer(DatabaseName, ContainerName);
 
@@ -95,7 +105,8 @@ namespace ServerlessImageProcessor.Functions
                 ProcessedWidth = newWidth,
                 ProcessedHeight = newHeight,
                 OriginalSizeBytes = originalSizeBytes,
-                ProcessedSizeBytes = processedSizeBytes
+                ProcessedSizeBytes = processedSizeBytes,
+                DetectedObjects = detectedObjects
             };
 
             await container.CreateItemAsync(record, new PartitionKey(record.FileName));
@@ -104,32 +115,35 @@ namespace ServerlessImageProcessor.Functions
     }
 
     public class ImageMetadata
-{
-    [JsonProperty("id")]
-    public string Id { get; set; } = string.Empty;
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; } = string.Empty;
 
-    [JsonProperty("FileName")]
-    public string FileName { get; set; } = string.Empty;
+        [JsonProperty("FileName")]
+        public string FileName { get; set; } = string.Empty;
 
-    [JsonProperty("ProcessedAtUtc")]
-    public DateTime ProcessedAtUtc { get; set; }
+        [JsonProperty("ProcessedAtUtc")]
+        public DateTime ProcessedAtUtc { get; set; }
 
-    [JsonProperty("OriginalWidth")]
-    public int OriginalWidth { get; set; }
+        [JsonProperty("OriginalWidth")]
+        public int OriginalWidth { get; set; }
 
-    [JsonProperty("OriginalHeight")]
-    public int OriginalHeight { get; set; }
+        [JsonProperty("OriginalHeight")]
+        public int OriginalHeight { get; set; }
 
-    [JsonProperty("ProcessedWidth")]
-    public int ProcessedWidth { get; set; }
+        [JsonProperty("ProcessedWidth")]
+        public int ProcessedWidth { get; set; }
 
-    [JsonProperty("ProcessedHeight")]
-    public int ProcessedHeight { get; set; }
+        [JsonProperty("ProcessedHeight")]
+        public int ProcessedHeight { get; set; }
 
-    [JsonProperty("OriginalSizeBytes")]
-    public int OriginalSizeBytes { get; set; }
+        [JsonProperty("OriginalSizeBytes")]
+        public int OriginalSizeBytes { get; set; }
 
-    [JsonProperty("ProcessedSizeBytes")]
-    public int ProcessedSizeBytes { get; set; }
-}
+        [JsonProperty("ProcessedSizeBytes")]
+        public int ProcessedSizeBytes { get; set; }
+
+        [JsonProperty("DetectedObjects")]
+        public List<DetectedObject> DetectedObjects { get; set; } = new();
+    }
 }
