@@ -158,6 +158,23 @@ namespace ServerlessImageProcessor.Functions
             _logger.LogInformation("Wrote metadata for {FileName} to Cosmos DB", input.FileName);
         }
 
+        [Function(nameof(PushToDeadLetterActivity))]
+        public async Task PushToDeadLetterActivity([ActivityTrigger] DeadLetterMessage message)
+        {
+            string connectionString = Environment.GetEnvironmentVariable("AzureWebJobsStorage") ?? "UseDevelopmentStorage=true";
+            var queueServiceClient = new Azure.Storage.Queues.QueueServiceClient(connectionString);
+            var queueClient = queueServiceClient.GetQueueClient("image-processing-deadletter");
+            await queueClient.CreateIfNotExistsAsync();
+
+            string json = JsonConvert.SerializeObject(message);
+            await queueClient.SendMessageAsync(json);
+
+            _logger.LogWarning("Moved {FileName} to dead-letter queue after failing at step {Step}: {Error}",
+                message.FileName, message.FailedStep, message.ErrorMessage);
+
+
+        }
+
 
     }
 }
