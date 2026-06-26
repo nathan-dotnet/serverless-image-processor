@@ -24,7 +24,7 @@ namespace ServerlessImageProcessor.Functions
     
     public static class ImageProcessingOrchestration
     {
-        [Function(nameof(ImageProcessingOrchestration))]
+        [Function(nameof(ImageProcessingOrchestrator))]
         public static async Task ImageProcessingOrchestrator(
             [OrchestrationTrigger] TaskOrchestrationContext context
         )
@@ -53,7 +53,7 @@ namespace ServerlessImageProcessor.Functions
                     retryOptions
                 );
 
-                currentStep = "WirteMetadata";
+                currentStep = "WriteMetadata";
                 await context.CallActivityAsync(
                     nameof(PipelineActivities.WriteMetadataActivity),
                     new WriteMetadataInput

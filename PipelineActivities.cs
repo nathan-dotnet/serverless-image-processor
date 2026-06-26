@@ -137,7 +137,7 @@ namespace ServerlessImageProcessor.Functions
 
         [Function(nameof(WriteMetadataActivity))]
         public async Task WriteMetadataActivity([ActivityTrigger] WriteMetadataInput input)
-        {
+        {   
             var container = _cosmosClient.GetContainer(DatabaseName, ContainerName);
 
             var record = new ImageMetadata
