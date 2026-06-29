@@ -1,3 +1,5 @@
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
 using Microsoft.Azure.Cosmos;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
@@ -10,9 +12,16 @@ var builder = FunctionsApplication.CreateBuilder(args);
 
 builder.ConfigureFunctionsWebApplication();
 
+string keyVaultUri = Environment.GetEnvironmentVariable("KeyVaultUri") 
+    ?? throw new InvalidOperationException("KeyVaultUri is not configured.");
+
+var credential = new DefaultAzureCredential();
+var secretClient = new SecretClient(new Uri(keyVaultUri), credential);
+string cosmosConnectionString = secretClient.GetSecret("CosmosDbConnectionString").Value.Value;
+
 builder.Services.AddSingleton(s =>
     new CosmosClient(
-        Environment.GetEnvironmentVariable("CosmosDbConnectionString"),
+        cosmosConnectionString,
         new CosmosClientOptions
         {
             ConnectionMode = ConnectionMode.Gateway
